@@ -15,7 +15,7 @@ npm start
 
 Roon Server 默认按 `192.168.11.100` 展示连接目标。Roon API 的 WebSocket 端口由 Roon 动态广播，应用会使用官方 discovery 机制寻找并配对 Core；Roon 配对状态会持久化到本地 SQLite，重新打开桌面程序后无需依赖启动目录中的临时配置文件。
 
-若窗口显示“已发现 Roon Server，但无法连接扩展 API”，表示 Core 已回应 discovery，但它动态广播出的扩展 API TCP 端口当前从本机不可达；此时扩展不会出现在 Roon 列表中，需要恢复 Core 与本机之间的新 TCP 连接后重新启动插件。
+若窗口显示“已发现 Roon Server，扩展 API 连接失败，正在重试”，表示 Core 已回应 discovery，但它动态广播出的扩展 API TCP 端口当前从本机不可达；程序会持续重新发现并尝试注册。
 
 ## 桌面歌词
 
@@ -23,4 +23,4 @@ Roon Server 默认按 `192.168.11.100` 展示连接目标。Roon API 的 WebSock
 
 ## 实时频谱
 
-右侧频谱视图使用 Spek 风格坐标与 `-100 dB` 到 `-20 dB` 色标，只绘制已捕获到的实时音频时间段。在 macOS 14.2 以上与 Electron 39 运行时，应用优先采集本机系统输出音频；系统采集不可用时，再降级选择 `BlackHole` 或 `Background Music` 回环输入。首次进行系统音频捕获时需要允许 macOS 的系统音频录制权限。Roon 的声音必须实际从这台 Mac 播放，远端 Roon 输出区域不会被本机捕获。
+右侧频谱视图使用 Spek 风格坐标与 `-100 dB` 到 `-20 dB` 色标，只绘制已捕获到的实时音频时间段。应用会选择 `BlackHole` 或本机已有的 `Background Music` 回环输入；首次开始播放时会请求麦克风/音频输入权限。要显示真实频谱，Roon 的实际播放音频必须在这台 Mac 上经过所选回环设备。

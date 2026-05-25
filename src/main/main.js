@@ -3,7 +3,6 @@ const fs = require("fs");
 const {
   app,
   BrowserWindow,
-  desktopCapturer,
   dialog,
   ipcMain,
   Menu,
@@ -31,10 +30,6 @@ let activeLyrics = { trackKey: "", status: "idle", source: "", lines: [], plainL
 
 function currentAlbumKey() {
   return roonClient?.state?.playback?.albumKey || "";
-}
-
-function isMainRendererFrame(frame) {
-  return Boolean(frame && frame.url === `file://${path.join(__dirname, "../renderer/index.html")}`);
 }
 
 function replacePreviousInstance(userDataPath) {
@@ -336,27 +331,6 @@ async function requestSpectrumInputAccess() {
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
-  session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
-    if (!isMainRendererFrame(request.frame)) {
-      callback({});
-      return;
-    }
-
-    try {
-      const sources = await desktopCapturer.getSources({
-        types: ["screen"],
-        thumbnailSize: { width: 0, height: 0 }
-      });
-      if (!sources.length) {
-        callback({});
-        return;
-      }
-      callback({ video: sources[0], audio: "loopback" });
-    } catch (error) {
-      console.warn("Unable to capture system audio:", error.message);
-      callback({});
-    }
-  });
   session.defaultSession.setPermissionCheckHandler((webContents, permission, _origin, details) => {
     return (
       permission === "media" &&
@@ -365,10 +339,6 @@ app.whenReady().then(() => {
     );
   });
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
-    if (permission === "display-capture") {
-      callback(webContents === mainWindow?.webContents);
-      return;
-    }
     callback(
       permission === "media" &&
         webContents === mainWindow?.webContents &&

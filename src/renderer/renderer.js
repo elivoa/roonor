@@ -264,25 +264,6 @@ async function revealAudioInputLabels() {
   stopStream(permissionStream);
 }
 
-async function captureSystemOutput() {
-  if (!navigator.mediaDevices?.getDisplayMedia) {
-    throw new Error("display-capture-unavailable");
-  }
-  const stream = await withTimeout(
-    navigator.mediaDevices.getDisplayMedia({ audio: true, video: true }),
-    12000
-  );
-  for (const videoTrack of stream.getVideoTracks()) {
-    videoTrack.stop();
-    stream.removeTrack(videoTrack);
-  }
-  if (!stream.getAudioTracks().length) {
-    stopStream(stream);
-    throw new Error("no-system-audio");
-  }
-  return { stream, label: "SYSTEM AUDIO" };
-}
-
 async function captureVirtualInput() {
   const permission = await withTimeout(window.roonMonitor.requestSpectrumInputAccess(), 10000);
   if (!permission.granted) {
@@ -320,12 +301,7 @@ async function ensureSpectrumCapture() {
   elements.spectrumMode.textContent = spectrumStatus;
 
   try {
-    let input;
-    try {
-      input = await captureSystemOutput();
-    } catch (systemCaptureError) {
-      input = await captureVirtualInput();
-    }
+    const input = await captureVirtualInput();
     spectrumInputLabel = input.label;
     spectrumStream = input.stream;
     spectrumAudioContext = new AudioContext();
@@ -349,8 +325,7 @@ async function ensureSpectrumCapture() {
       timeout: "INPUT TIMEOUT",
       "mic-denied": "MIC ACCESS DENIED",
       "mic-required": "MIC ACCESS REQUIRED",
-      "loopback-required": "SYSTEM AUDIO DENIED",
-      "no-system-audio": "SYSTEM AUDIO DENIED"
+      "loopback-required": "LOOPBACK REQUIRED"
     };
     spectrumStatus = messages[error.message] || "INPUT FAILED";
     elements.spectrumMode.textContent = spectrumStatus;

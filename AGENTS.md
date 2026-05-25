@@ -11,6 +11,7 @@
 - Roon 官方 JavaScript API 的 Core WebSocket 端口不是固定值。即使已知 Roon Server IP（当前项目默认 192.168.11.100），也优先使用 `node-roon-api` 的 `start_discovery()` 完成发现和配对；
 - 不要硬编码端口。
 - `node-roon-api` 在 Node 端默认将 pairing state 相对当前工作目录保存为 `config.json`；桌面应用从 Finder/Electron 启动时工作目录并不稳定，必须通过 `set_persisted_state/get_persisted_state` 将配对状态存入应用 SQLite settings。
+- 当前 `node-roon-api` 在 WebSocket 尚未 open 就连接失败时会保留失败 Core 的 `_sood_conns` 项，使之后的 discovery 回复被跳过；失败后应清除该项并通过既有 SOOD socket 重新发送 discovery 查询，不要立即 `stop_discovery()`/`start_discovery()`，否则会与异步关闭 socket 冲突。
 - 播放状态通过 `RoonApiTransport.subscribe_zones()` 监听，上一首/播放暂停/下一首通过 `transport.control(zone, control)` 发送。
 - 当前 Transport API 会返回 now playing 元数据和 image_key，但不直接提供同步歌词，歌词功能需要后续接入其他来源或独立解析。
 - 桌面歌词通过独立透明悬浮窗显示；当前实现按曲名、歌手、专辑、时长向 `LRCLIB` 查询带时间轴歌词并缓存到 SQLite，渲染端以 Roon 播放位置同步当前行。不要把歌词误认为 Roon API 原生提供的数据。
@@ -19,7 +20,7 @@
 - Roon 扩展 Transport API 不提供当前歌曲的原始音频流或文件内容，因此当前桌面端在接入真实采集链路之前只能显示空声谱图框架；
 - 若后续要做真实频谱，需要额外接入本地音频文件路径、Roon 导出的音频来源，或系统级音频采集/解码链路。
 - 频谱界面不得用元数据生成假图；真实声谱图以播放时间映射横轴，仅在收到 PCM/FFT 帧的时间范围填充 `-100 dB` 到 `-20 dB` 色谱，未收到数据的区域保持空白。
-- macOS 14.2 以上的桌面端真实频谱应使用 Electron 39+ 的系统音频捕获能力，并在应用 `Info.plist` 中声明 `NSAudioCaptureUsageDescription`；缺少该声明可能得到静音流且无明显错误。系统采集不可用时再降级寻找 `BlackHole` 或 `Background Music` 输入。
+- 桌面端真实频谱当前依赖 `BlackHole` 或 `Background Music` 回环输入。不要为了系统音频采集直接改写开发态 Electron.app 并升级运行时，从而影响已授权的 Roon 扩展应用身份；后续应在正式打包 app 中配置权限与签名后再接入系统捕获。
 - 真实频谱只能分析这台 Mac 实际输出或回环到输入的音频；若 Roon 播放区域输出到其他设备，本机频谱应提示静音而不是绘制假数据。
 - Roon Transport API 的 `now_playing` 也不暴露源音频文件路径；界面不得伪造具体路径，真实文件位置需要后续接入本地曲库映射或其他路径来源。
 

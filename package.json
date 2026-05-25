@@ -5,12 +5,11 @@
   "main": "src/main/main.js",
   "private": true,
   "scripts": {
-    "prepare:electron": "node scripts/prepare-electron-macos.js",
-    "start": "npm run prepare:electron && electron .",
+    "start": "electron .",
     "check": "node scripts/smoke-check.js"
   },
   "dependencies": {
-    "electron": "^39.0.0",
+    "electron": "^37.2.0",
     "node-roon-api": "github:roonlabs/node-roon-api",
     "node-roon-api-image": "github:roonlabs/node-roon-api-image",
     "node-roon-api-status": "github:roonlabs/node-roon-api-status",

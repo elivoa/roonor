@@ -9,7 +9,6 @@ const requiredFiles = [
   "src/main/roon-client.js",
   "src/main/store.js",
   "src/main/lyrics-service.js",
-  "scripts/prepare-electron-macos.js",
   "src/preload.js",
   "src/renderer/index.html",
   "src/renderer/renderer.js",

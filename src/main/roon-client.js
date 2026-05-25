@@ -1,6 +1,8 @@
 const { EventEmitter } = require("events");
 
 const DEFAULT_SERVER_HOST = "192.168.11.100";
+const DISCOVERY_RETRY_DELAY_MS = 3000;
+const ROON_CORE_SERVICE_ID = "00720724-5143-4a9b-abac-0e50cba674bb";
 
 function albumKeyFor({ album, artist, imageKey }) {
   if (!album && !artist && !imageKey) return "";
@@ -27,6 +29,7 @@ class RoonClient extends EventEmitter {
     this.lastImageBuffer = null;
     this.lastSavedCoverAlbumKey = "";
     this.hasDiscoveryConnectionError = false;
+    this.discoveryRetryTimer = null;
     this.state = this.createState("idle", "准备连接 Roon");
   }
 
@@ -56,10 +59,7 @@ class RoonClient extends EventEmitter {
       log_level: process.env.ROON_LOG_LEVEL || "none",
       set_persisted_state: (state) => this.store?.setSetting("roon.pairedState", state || {}),
       get_persisted_state: () => this.store?.getSetting("roon.pairedState", {}) || {},
-      moo_onerror: () => {
-        this.hasDiscoveryConnectionError = true;
-        this.updateState("connection-error", "已发现 Roon Server，但无法连接扩展 API");
-      },
+      moo_onerror: () => this.retryDiscoveryAfterConnectionError(),
       core_paired: (core) => this.handleCorePaired(core),
       core_unpaired: () => this.handleCoreUnpaired()
     });
@@ -106,7 +106,21 @@ class RoonClient extends EventEmitter {
     });
   }
 
+  retryDiscoveryAfterConnectionError() {
+    this.hasDiscoveryConnectionError = true;
+    this.updateState("connection-error", "已发现 Roon Server，扩展 API 连接失败，正在重试");
+    clearTimeout(this.discoveryRetryTimer);
+    this.discoveryRetryTimer = setTimeout(() => {
+      if (this.core || !this.roon) return;
+
+      // node-roon-api retains failed pre-open sockets and otherwise ignores later discovery replies.
+      this.roon._sood_conns = {};
+      this.roon._sood?.query({ query_service_id: ROON_CORE_SERVICE_ID });
+    }, DISCOVERY_RETRY_DELAY_MS);
+  }
+
   handleCorePaired(core) {
+    clearTimeout(this.discoveryRetryTimer);
     this.hasDiscoveryConnectionError = false;
     this.core = core;
     this.transport = core.services.RoonApiTransport;
@@ -120,6 +134,7 @@ class RoonClient extends EventEmitter {
   }
 
   handleCoreUnpaired() {
+    clearTimeout(this.discoveryRetryTimer);
     this.core = null;
     this.transport = null;
     this.imageService = null;
