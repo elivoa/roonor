@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Roon Monitor</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="pet" aria-label="桌面宠物">
+        <div class="pet-cover" id="pet-cover" aria-label="专辑封面角色">
+          <span class="roon-mark">ROON</span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <header class="dragbar">
+          <div>
+            <p class="zone" id="zone">192.168.11.100</p>
+            <p class="status" id="status">启动中</p>
+          </div>
+          <button class="close" id="close" title="关闭" aria-label="关闭">×</button>
+        </header>
+
+        <section class="now-playing">
+          <p class="title" id="title">Roon Monitor</p>
+          <p class="artist" id="artist"></p>
+          <p class="album" id="album"></p>
+        </section>
+
+        <section class="lyrics" id="lyrics" aria-label="歌词"></section>
+
+        <footer class="controls">
+          <button id="previous" title="上一首" aria-label="上一首">‹</button>
+          <button class="play" id="playpause" title="播放/暂停" aria-label="播放/暂停">▶</button>
+          <button id="next" title="下一首" aria-label="下一首">›</button>
+        </footer>
+      </section>
+
+      <section class="spectrum-panel" aria-label="频谱图">
+        <header class="spectrum-header">
+          <span>SPECTRUM</span>
+          <span id="spectrum-mode">44.1 kHz</span>
+        </header>
+        <canvas id="spectrum" width="640" height="320"></canvas>
+      </section>
+    </main>
+
+    <script src="./renderer.js"></script>
+  </body>
+</html>

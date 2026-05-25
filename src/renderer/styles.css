@@ -1,0 +1,265 @@
+:root {
+  color-scheme: light dark;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  background: transparent;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+body {
+  color: rgba(250, 252, 255, 0.94);
+}
+
+button {
+  border: 0;
+  font: inherit;
+}
+
+.shell {
+  position: relative;
+  display: grid;
+  grid-template-columns: 92px 228px 1fr;
+  gap: 10px;
+  width: 100vw;
+  height: 100vh;
+  padding: 12px;
+  background: transparent;
+}
+
+.pet {
+  position: relative;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  background: transparent;
+  -webkit-app-region: drag;
+}
+
+.pet-cover {
+  display: grid;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  border: 1px solid rgba(255, 255, 255, 0.44);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 32% 20%, rgba(255, 255, 255, 0.24), transparent 24%),
+    linear-gradient(145deg, #101823, #25384a 46%, #0d1219);
+  background-position: center;
+  background-size: cover;
+  box-shadow:
+    0 12px 28px rgba(4, 10, 18, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+
+.pet-cover.has-image {
+  border-color: rgba(255, 255, 255, 0.52);
+}
+
+.roon-mark {
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.pet-cover.has-image .roon-mark {
+  opacity: 0;
+}
+
+body[data-state="playing"] .pet {
+  animation: bob 2.6s ease-in-out infinite;
+}
+
+.panel {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 18px;
+  background: linear-gradient(
+    145deg,
+    rgba(29, 37, 48, 0.34),
+    rgba(12, 18, 27, 0.22)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 18px 44px rgba(8, 13, 18, 0.22);
+  backdrop-filter: blur(30px) saturate(1.55);
+  -webkit-backdrop-filter: blur(30px) saturate(1.55);
+}
+
+.spectrum-panel {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 7px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 18px;
+  background: linear-gradient(
+    145deg,
+    rgba(18, 28, 42, 0.32),
+    rgba(8, 12, 20, 0.2)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 18px 44px rgba(8, 13, 18, 0.2);
+  backdrop-filter: blur(30px) saturate(1.55);
+  -webkit-backdrop-filter: blur(30px) saturate(1.55);
+}
+
+.spectrum-header {
+  display: flex;
+  justify-content: space-between;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+#spectrum {
+  width: 100%;
+  height: 100%;
+  min-height: 152px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  background: rgba(5, 9, 18, 0.58);
+  box-shadow: inset 0 1px 12px rgba(0, 0, 0, 0.26);
+}
+
+.dragbar {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  min-width: 0;
+  -webkit-app-region: drag;
+}
+
+.zone,
+.status,
+.title,
+.artist,
+.album,
+.lyrics p {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zone {
+  max-width: 198px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status {
+  max-width: 198px;
+  margin-top: 2px;
+  color: rgba(224, 235, 242, 0.7);
+  font-size: 10px;
+}
+
+.close {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.12);
+  -webkit-app-region: no-drag;
+}
+
+.now-playing {
+  min-width: 0;
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.artist {
+  margin-top: 3px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+}
+
+.album {
+  margin-top: 2px;
+  color: rgba(186, 236, 226, 0.86);
+  font-size: 11px;
+}
+
+.lyrics {
+  display: grid;
+  align-content: center;
+  min-height: 34px;
+  padding: 7px 9px;
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.lyrics p {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: repeat(3, 44px);
+  justify-content: center;
+  gap: 10px;
+}
+
+.controls button {
+  width: 44px;
+  height: 34px;
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+
+.controls .play {
+  background: rgba(109, 231, 197, 0.32);
+}
+
+.controls button:disabled {
+  opacity: 0.36;
+}
+
+.close:hover,
+.controls button:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-4px);
+  }
+}

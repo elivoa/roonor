@@ -1,0 +1,19 @@
+{
+  "name": "roon-monitor",
+  "version": "0.1.0",
+  "description": "A compact macOS desktop mascot for monitoring and controlling Roon playback.",
+  "main": "src/main/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "check": "node scripts/smoke-check.js"
+  },
+  "dependencies": {
+    "electron": "^37.2.0",
+    "node-roon-api": "github:roonlabs/node-roon-api",
+    "node-roon-api-image": "github:roonlabs/node-roon-api-image",
+    "node-roon-api-status": "github:roonlabs/node-roon-api-status",
+    "node-roon-api-transport": "github:roonlabs/node-roon-api-transport"
+  },
+  "devDependencies": {}
+}
