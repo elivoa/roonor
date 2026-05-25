@@ -2,6 +2,12 @@ const { EventEmitter } = require("events");
 
 const DEFAULT_SERVER_HOST = "192.168.11.100";
 
+function albumKeyFor({ album, artist, imageKey }) {
+  if (!album && !artist && !imageKey) return "";
+  if (album) return [album, imageKey || ""].join("|");
+  return [artist || "", imageKey || ""].join("|");
+}
+
 class RoonClient extends EventEmitter {
   constructor({ serverHost = DEFAULT_SERVER_HOST, store = null } = {}) {
     super();
@@ -17,6 +23,10 @@ class RoonClient extends EventEmitter {
     this.lastSnapshotKey = "";
     this.lastImageKey = "";
     this.lastImageDataUrl = "";
+    this.lastImageContentType = "";
+    this.lastImageBuffer = null;
+    this.lastSavedCoverAlbumKey = "";
+    this.hasDiscoveryConnectionError = false;
     this.state = this.createState("idle", "准备连接 Roon");
   }
 
@@ -43,7 +53,13 @@ class RoonClient extends EventEmitter {
       publisher: "Local Desktop",
       email: "local@roon-monitor.invalid",
       website: "https://github.com/roonlabs/node-roon-api",
-      log_level: "none",
+      log_level: process.env.ROON_LOG_LEVEL || "none",
+      set_persisted_state: (state) => this.store?.setSetting("roon.pairedState", state || {}),
+      get_persisted_state: () => this.store?.getSetting("roon.pairedState", {}) || {},
+      moo_onerror: () => {
+        this.hasDiscoveryConnectionError = true;
+        this.updateState("connection-error", "已发现 Roon Server，但无法连接扩展 API");
+      },
       core_paired: (core) => this.handleCorePaired(core),
       core_unpaired: () => this.handleCoreUnpaired()
     });
@@ -59,7 +75,7 @@ class RoonClient extends EventEmitter {
     this.roon.start_discovery();
 
     setTimeout(() => {
-      if (!this.core) {
+      if (!this.core && !this.hasDiscoveryConnectionError) {
         this.updateState(
           "needs-authorization",
           "请在 Roon 设置的 Extensions 中启用 Roon Monitor Mascot"
@@ -91,6 +107,7 @@ class RoonClient extends EventEmitter {
   }
 
   handleCorePaired(core) {
+    this.hasDiscoveryConnectionError = false;
     this.core = core;
     this.transport = core.services.RoonApiTransport;
     this.imageService = core.services.RoonApiImage;
@@ -173,6 +190,8 @@ class RoonClient extends EventEmitter {
         title: "未检测到播放区域",
         artist: "",
         album: "",
+        fileLocation: "",
+        albumKey: "",
         zoneName: "",
         imageDataUrl: "",
         lyrics: ["等待 Roon 推送当前播放信息"]
@@ -186,6 +205,7 @@ class RoonClient extends EventEmitter {
     const artist = threeLine.line2 || "";
     const album = threeLine.line3 || twoLine.line2 || "";
 
+    const imageKey = nowPlaying.image_key || "";
     return {
       zoneId: zone.zone_id,
       zoneName: zone.display_name || "",
@@ -193,8 +213,10 @@ class RoonClient extends EventEmitter {
       title,
       artist,
       album,
-      imageKey: nowPlaying.image_key || "",
-      imageDataUrl: nowPlaying.image_key === this.lastImageKey ? this.lastImageDataUrl : "",
+      fileLocation: "",
+      albumKey: albumKeyFor({ album, artist, imageKey }),
+      imageKey,
+      imageDataUrl: imageKey === this.lastImageKey ? this.lastImageDataUrl : "",
       position: nowPlaying.seek_position || zone.seek_position || 0,
       length: nowPlaying.length || 0,
       lyrics: ["同步歌词接口待接入", album ? `专辑：${album}` : "Roon 已返回播放信息"]
@@ -230,18 +252,32 @@ class RoonClient extends EventEmitter {
 
     if (snapshot.imageKey === this.lastImageKey && this.lastImageDataUrl) {
       snapshot.imageDataUrl = this.lastImageDataUrl;
+      if (
+        snapshot.albumKey &&
+        snapshot.albumKey !== this.lastSavedCoverAlbumKey &&
+        this.lastImageBuffer
+      ) {
+        this.store?.saveCover(snapshot, this.lastImageContentType, this.lastImageBuffer);
+        this.lastSavedCoverAlbumKey = snapshot.albumKey;
+        this.emit("library-changed");
+      }
       done();
       return;
     }
 
     this.imageService.get_image(
       snapshot.imageKey,
-      { scale: "fill", width: 160, height: 160, format: "image/jpeg" },
+      { scale: "fill", width: 960, height: 960, format: "image/jpeg" },
       (error, contentType, image) => {
         if (!error && image) {
           this.lastImageKey = snapshot.imageKey;
           this.lastImageDataUrl = `data:${contentType};base64,${image.toString("base64")}`;
+          this.lastImageContentType = contentType;
+          this.lastImageBuffer = image;
           snapshot.imageDataUrl = this.lastImageDataUrl;
+          this.store?.saveCover(snapshot, contentType, image);
+          this.lastSavedCoverAlbumKey = snapshot.albumKey;
+          this.emit("library-changed");
         }
         done();
       }
@@ -260,6 +296,8 @@ class RoonClient extends EventEmitter {
         title: "Roon Monitor",
         artist: "",
         album: "",
+        fileLocation: "",
+        albumKey: "",
         zoneName: "",
         imageDataUrl: "",
         lyrics: ["正在启动桌面宠物"]

@@ -1,0 +1,284 @@
+:root {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  background: #10151b;
+  color: rgba(247, 249, 251, 0.94);
+}
+
+* {
+  box-sizing: border-box;
+  letter-spacing: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background:
+    linear-gradient(145deg, rgba(14, 20, 27, 0.72), rgba(8, 11, 15, 0.9)),
+    rgba(16, 21, 27, 0.82);
+  cursor: grab;
+  user-select: none;
+}
+
+body:active {
+  cursor: grabbing;
+}
+
+button {
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.library {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+}
+
+.overlay {
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
+}
+
+.library:hover .overlay,
+.library:focus-within .overlay,
+.library.is-empty .overlay {
+  opacity: 1;
+}
+
+.toolbar {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 24px 48px 76px;
+  background: linear-gradient(to bottom, rgba(4, 7, 12, 0.7), transparent);
+  transform: translateY(-6px);
+}
+
+.library:hover .toolbar,
+.library:focus-within .toolbar,
+.library.is-empty .toolbar {
+  transform: translateY(0);
+}
+
+.brand,
+.selection {
+  max-width: min(58vw, 560px);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brand {
+  color: rgba(157, 203, 195, 0.84);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.selection {
+  margin-top: 4px;
+  color: rgba(248, 250, 252, 0.94);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  pointer-events: auto;
+}
+
+.count {
+  min-width: 30px;
+  color: rgba(210, 220, 228, 0.68);
+  font-size: 12px;
+  text-align: right;
+}
+
+.import {
+  height: 34px;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 13px;
+}
+
+.import:hover {
+  background: rgba(255, 255, 255, 0.17);
+}
+
+.viewer {
+  width: 100%;
+  height: 100%;
+}
+
+.navigation-layer {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  right: 18px;
+  bottom: 0;
+  left: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.navigation {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 56px;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 34px;
+  pointer-events: auto;
+}
+
+.navigation:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.navigation:disabled {
+  opacity: 0.24;
+}
+
+.track {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.track::-webkit-scrollbar {
+  display: none;
+}
+
+.slide {
+  display: grid;
+  flex: 0 0 100%;
+  place-items: center;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  scroll-snap-align: center;
+}
+
+.media {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 0;
+  background: rgba(5, 8, 12, 0.72);
+}
+
+.media.image img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.media.pdf object {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: rgba(255, 255, 255, 0.96);
+  pointer-events: none;
+}
+
+.empty {
+  align-self: center;
+  margin: auto;
+  color: rgba(228, 234, 240, 0.5);
+  font-size: 14px;
+}
+
+.strip {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  gap: 9px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 36px 20px 18px;
+  background: linear-gradient(to top, rgba(4, 7, 12, 0.72), transparent);
+  scrollbar-width: none;
+  transform: translateY(6px);
+  pointer-events: none;
+}
+
+.library:hover .strip,
+.library:focus-within .strip,
+.library.is-empty .strip {
+  transform: translateY(0);
+}
+
+.strip::-webkit-scrollbar {
+  display: none;
+}
+
+.thumbnail {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0;
+  pointer-events: auto;
+}
+
+.thumbnail.selected {
+  border-color: rgba(123, 203, 190, 0.86);
+  box-shadow: 0 0 0 1px rgba(123, 203, 190, 0.26);
+}
+
+.thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.pdf-mark {
+  color: rgba(230, 234, 239, 0.82);
+  font-size: 11px;
+  font-weight: 700;
+}

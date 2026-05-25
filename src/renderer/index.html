@@ -14,7 +14,7 @@
         </div>
       </section>
 
-      <section class="panel">
+      <section class="panel" id="panel">
         <header class="dragbar">
           <div>
             <p class="zone" id="zone">192.168.11.100</p>
@@ -29,21 +29,26 @@
           <p class="album" id="album"></p>
         </section>
 
-        <section class="lyrics" id="lyrics" aria-label="歌词"></section>
-
         <footer class="controls">
           <button id="previous" title="上一首" aria-label="上一首">‹</button>
           <button class="play" id="playpause" title="播放/暂停" aria-label="播放/暂停">▶</button>
           <button id="next" title="下一首" aria-label="下一首">›</button>
+          <button class="toggle-lyrics active" id="toggle-lyrics" title="桌面歌词" aria-label="桌面歌词">
+            词
+          </button>
         </footer>
+
+        <p class="file-location" id="file-location" title="Roon API 未提供音频文件路径">
+          文件位置：Roon API 未提供
+        </p>
       </section>
 
       <section class="spectrum-panel" aria-label="频谱图">
         <header class="spectrum-header">
-          <span>SPECTRUM</span>
-          <span id="spectrum-mode">44.1 kHz</span>
+          <span id="spectrum-track">SPECTROGRAM</span>
+          <span id="spectrum-mode">WAITING PCM</span>
         </header>
-        <canvas id="spectrum" width="640" height="320"></canvas>
+        <canvas id="spectrum" width="760" height="440" aria-label="实时频谱图"></canvas>
       </section>
     </main>
 

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Roon Arts</title>
+    <link rel="stylesheet" href="./gallery.css" />
+  </head>
+  <body>
+    <main class="library">
+      <section class="viewer">
+        <div class="track" id="track" aria-live="polite"></div>
+      </section>
+
+      <header class="toolbar overlay">
+        <div class="heading">
+          <p class="brand">ROON ARTS</p>
+          <p class="selection" id="selection">暂无媒体</p>
+        </div>
+        <div class="actions">
+          <span class="count" id="count">0</span>
+          <button class="import" id="import" aria-label="添加图片或 PDF">添加</button>
+        </div>
+      </header>
+
+      <section class="navigation-layer overlay" aria-label="翻页">
+        <button class="navigation previous" id="previous" aria-label="上一项">‹</button>
+        <button class="navigation next" id="next" aria-label="下一项">›</button>
+      </section>
+
+      <nav class="strip overlay" id="strip" aria-label="媒体列表"></nav>
+    </main>
+
+    <script src="./gallery.js"></script>
+  </body>
+</html>
