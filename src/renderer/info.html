@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Roon Playing</title>
+    <link rel="stylesheet" href="./info.css" />
+  </head>
+  <body>
+    <main class="playing-view">
+      <header class="titlebar">
+        <p class="brand">ROON PLAYING</p>
+        <div class="connection">
+          <span class="zone" id="info-zone">mac</span>
+          <span class="state" id="info-state">连接中</span>
+        </div>
+      </header>
+
+      <section class="track">
+        <p class="title" id="info-title">未播放</p>
+        <p class="artist" id="info-artist">Roon</p>
+        <p class="album" id="info-album">等待专辑信息</p>
+      </section>
+
+      <section class="timeline" aria-label="播放进度">
+        <div class="progress"><span id="info-progress"></span></div>
+        <div class="timestamps">
+          <span id="info-position">0:00</span>
+          <span id="info-length">0:00</span>
+        </div>
+      </section>
+
+      <p class="lyric" id="info-lyric"></p>
+
+      <footer class="footer">
+        <div class="controls">
+          <button id="info-previous" aria-label="上一首" title="上一首">‹</button>
+          <button class="play" id="info-playpause" aria-label="播放/暂停" title="播放/暂停">▶</button>
+          <button id="info-next" aria-label="下一首" title="下一首">›</button>
+        </div>
+        <p class="location" id="info-location"></p>
+      </footer>
+    </main>
+    <script src="./info.js"></script>
+  </body>
+</html>

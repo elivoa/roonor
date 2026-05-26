@@ -3,7 +3,13 @@ const { EventEmitter } = require("events");
 const DEFAULT_SERVER_HOST = "192.168.11.100";
 const DISCOVERY_RETRY_DELAY_MS = 3000;
 const COVER_RETRY_DELAY_MS = 5000;
+const COVER_REQUEST_TIMEOUT_MS = 5000;
+const FALLBACK_COVER_RETRY_DELAY_MS = 60 * 1000;
 const ROON_CORE_SERVICE_ID = "00720724-5143-4a9b-abac-0e50cba674bb";
+
+function normalizedText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
 
 function albumKeyFor({ album, artist, imageKey }) {
   if (!album && !artist && !imageKey) return "";
@@ -12,10 +18,11 @@ function albumKeyFor({ album, artist, imageKey }) {
 }
 
 class RoonClient extends EventEmitter {
-  constructor({ serverHost = DEFAULT_SERVER_HOST, store = null } = {}) {
+  constructor({ serverHost = DEFAULT_SERVER_HOST, store = null, fetchImpl = global.fetch } = {}) {
     super();
     this.serverHost = serverHost;
     this.store = store;
+    this.fetchImpl = fetchImpl;
     this.roon = null;
     this.statusService = null;
     this.core = null;
@@ -29,8 +36,11 @@ class RoonClient extends EventEmitter {
     this.lastImageContentType = "";
     this.lastImageBuffer = null;
     this.lastSavedCoverAlbumKey = "";
-    this.pendingImageKeys = new Set();
+    this.pendingImageKeys = new Map();
     this.imageRetryUntil = new Map();
+    this.cachedCoverDataUrls = new Map();
+    this.pendingFallbackAlbumKeys = new Set();
+    this.fallbackRetryUntil = new Map();
     this.hasDiscoveryConnectionError = false;
     this.discoveryRetryTimer = null;
     this.state = this.createState("idle", "准备连接 Roon");
@@ -168,22 +178,22 @@ class RoonClient extends EventEmitter {
     this.activeZoneId = activeZone?.zone_id || null;
     const snapshot = this.zoneToSnapshot(activeZone);
     this.maybeLogPlayback(snapshot);
-    this.fetchCoverIfNeeded(snapshot, () => {
-      this.state = {
-        connection: "paired",
-        serverHost: this.serverHost,
-        coreName: this.core?.display_name || "",
-        message: activeZone ? "正在监听播放状态" : "已连接，等待播放区域",
-        zones: Array.from(this.zones.values()).map((zone) => ({
-          id: zone.zone_id,
-          name: zone.display_name,
-          state: zone.state
-        })),
-        playback: snapshot,
-        controls: this.zoneToControls(activeZone)
-      };
-      this.emit("state", this.state);
-    });
+    this.restoreCachedCover(snapshot);
+    this.state = {
+      connection: "paired",
+      serverHost: this.serverHost,
+      coreName: this.core?.display_name || "",
+      message: activeZone ? "正在监听播放状态" : "已连接，等待播放区域",
+      zones: Array.from(this.zones.values()).map((zone) => ({
+        id: zone.zone_id,
+        name: zone.display_name,
+        state: zone.state
+      })),
+      playback: snapshot,
+      controls: this.zoneToControls(activeZone)
+    };
+    this.emit("state", this.state);
+    this.fetchCoverIfNeeded(snapshot);
   }
 
   pickActiveZone() {
@@ -262,14 +272,109 @@ class RoonClient extends EventEmitter {
     this.store?.logPlayback(snapshot);
   }
 
-  fetchCoverIfNeeded(snapshot, done) {
+  restoreCachedCover(snapshot) {
+    if (!snapshot.albumKey || snapshot.imageDataUrl) return;
+    if (this.cachedCoverDataUrls.has(snapshot.albumKey)) {
+      snapshot.imageDataUrl = this.cachedCoverDataUrls.get(snapshot.albumKey);
+      return;
+    }
+    const cached = this.store?.getCachedCover(snapshot.albumKey);
+    if (!cached) return;
+    snapshot.imageDataUrl = `data:${cached.contentType};base64,${cached.image.toString("base64")}`;
+    this.cachedCoverDataUrls.set(snapshot.albumKey, snapshot.imageDataUrl);
+  }
+
+  publishCoverIfCurrent(snapshot, imageDataUrl) {
+    const playback = this.state.playback || {};
+    if (playback.imageKey !== snapshot.imageKey || playback.albumKey !== snapshot.albumKey) return;
+    this.state = {
+      ...this.state,
+      playback: {
+        ...playback,
+        imageDataUrl
+      }
+    };
+    this.emit("state", this.state);
+  }
+
+  async fetchFallbackCover(snapshot) {
+    if (!this.fetchImpl || !snapshot.album) return null;
+    const searchUrl = new URL("https://itunes.apple.com/search");
+    searchUrl.searchParams.set("term", [snapshot.artist, snapshot.album].filter(Boolean).join(" "));
+    searchUrl.searchParams.set("entity", "album");
+    searchUrl.searchParams.set("limit", "8");
+    searchUrl.searchParams.set("country", "CN");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    try {
+      const response = await this.fetchImpl(searchUrl, {
+        headers: {
+          "User-Agent": "roon-monitor/0.1.0 (macOS artwork fallback; https://github.com/elivoa/roonor)"
+        },
+        signal: controller.signal
+      });
+      if (!response.ok) return null;
+      const payload = await response.json();
+      const expectedAlbum = normalizedText(snapshot.album).toLocaleLowerCase();
+      const expectedArtist = normalizedText(snapshot.artist).toLocaleLowerCase();
+      const match = (payload.results || []).find((candidate) => {
+        const album = normalizedText(candidate.collectionName).toLocaleLowerCase();
+        const artist = normalizedText(candidate.artistName).toLocaleLowerCase();
+        return album === expectedAlbum && (!expectedArtist || artist === expectedArtist);
+      });
+      if (!match?.artworkUrl100) return null;
+      const artworkUrl = match.artworkUrl100.replace(/\/\d+x\d+bb\./, "/600x600bb.");
+      const imageResponse = await this.fetchImpl(artworkUrl, { signal: controller.signal });
+      if (!imageResponse.ok) return null;
+      return {
+        contentType: imageResponse.headers.get("content-type") || "image/jpeg",
+        image: Buffer.from(await imageResponse.arrayBuffer())
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  requestFallbackCover(snapshot) {
+    if (
+      !snapshot.albumKey ||
+      !snapshot.album ||
+      this.cachedCoverDataUrls.has(snapshot.albumKey) ||
+      this.pendingFallbackAlbumKeys.has(snapshot.albumKey) ||
+      (this.fallbackRetryUntil.get(snapshot.albumKey) || 0) > Date.now()
+    ) {
+      return;
+    }
+
+    this.pendingFallbackAlbumKeys.add(snapshot.albumKey);
+    this.fetchFallbackCover(snapshot)
+      .then((cover) => {
+        if (!cover) {
+          this.fallbackRetryUntil.set(snapshot.albumKey, Date.now() + FALLBACK_COVER_RETRY_DELAY_MS);
+          return;
+        }
+        const imageDataUrl = `data:${cover.contentType};base64,${cover.image.toString("base64")}`;
+        this.cachedCoverDataUrls.set(snapshot.albumKey, imageDataUrl);
+        this.store?.saveCover(snapshot, cover.contentType, cover.image);
+        this.publishCoverIfCurrent(snapshot, imageDataUrl);
+        this.emit("library-changed");
+      })
+      .catch(() => {
+        this.fallbackRetryUntil.set(snapshot.albumKey, Date.now() + FALLBACK_COVER_RETRY_DELAY_MS);
+      })
+      .finally(() => {
+        this.pendingFallbackAlbumKeys.delete(snapshot.albumKey);
+      });
+  }
+
+  fetchCoverIfNeeded(snapshot) {
     if (!snapshot.imageKey || !this.imageService) {
-      done();
       return;
     }
 
     if (snapshot.imageKey === this.lastImageKey && this.lastImageDataUrl) {
       snapshot.imageDataUrl = this.lastImageDataUrl;
+      this.publishCoverIfCurrent(snapshot, this.lastImageDataUrl);
       if (
         snapshot.albumKey &&
         snapshot.albumKey !== this.lastSavedCoverAlbumKey &&
@@ -279,7 +384,6 @@ class RoonClient extends EventEmitter {
         this.lastSavedCoverAlbumKey = snapshot.albumKey;
         this.emit("library-changed");
       }
-      done();
       return;
     }
 
@@ -287,16 +391,25 @@ class RoonClient extends EventEmitter {
       this.pendingImageKeys.has(snapshot.imageKey) ||
       (this.imageRetryUntil.get(snapshot.imageKey) || 0) > Date.now()
     ) {
-      done();
       return;
     }
 
-    this.pendingImageKeys.add(snapshot.imageKey);
+    const requestToken = {};
+    this.pendingImageKeys.set(snapshot.imageKey, requestToken);
+    const requestTimeout = setTimeout(() => {
+      if (this.pendingImageKeys.get(snapshot.imageKey) !== requestToken) return;
+      this.pendingImageKeys.delete(snapshot.imageKey);
+      this.imageRetryUntil.set(snapshot.imageKey, Date.now() + COVER_RETRY_DELAY_MS);
+      this.requestFallbackCover(snapshot);
+    }, COVER_REQUEST_TIMEOUT_MS);
     this.imageService.get_image(
       snapshot.imageKey,
       { scale: "fill", width: 960, height: 960, format: "image/jpeg" },
       (error, contentType, image) => {
-        this.pendingImageKeys.delete(snapshot.imageKey);
+        clearTimeout(requestTimeout);
+        if (this.pendingImageKeys.get(snapshot.imageKey) === requestToken) {
+          this.pendingImageKeys.delete(snapshot.imageKey);
+        }
         if (!error && image) {
           this.imageRetryUntil.delete(snapshot.imageKey);
           this.lastImageKey = snapshot.imageKey;
@@ -304,13 +417,15 @@ class RoonClient extends EventEmitter {
           this.lastImageContentType = contentType;
           this.lastImageBuffer = image;
           snapshot.imageDataUrl = this.lastImageDataUrl;
+          this.cachedCoverDataUrls.set(snapshot.albumKey, this.lastImageDataUrl);
           this.store?.saveCover(snapshot, contentType, image);
           this.lastSavedCoverAlbumKey = snapshot.albumKey;
+          this.publishCoverIfCurrent(snapshot, this.lastImageDataUrl);
           this.emit("library-changed");
         } else {
           this.imageRetryUntil.set(snapshot.imageKey, Date.now() + COVER_RETRY_DELAY_MS);
+          this.requestFallbackCover(snapshot);
         }
-        done();
       }
     );
   }

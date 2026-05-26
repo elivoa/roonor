@@ -10,6 +10,10 @@ contextBridge.exposeInMainWorld("roonMonitor", {
   moveGalleryWindowBy: (deltaX, deltaY) =>
     ipcRenderer.invoke("window:move-gallery-by", deltaX, deltaY),
   toggleGallery: () => ipcRenderer.invoke("gallery:toggle"),
+  toggleInfo: () => ipcRenderer.invoke("info:toggle"),
+  toggleSpectrum: (snapshot) => ipcRenderer.invoke("spectrum:toggle", snapshot),
+  publishSpectrumFrame: (frame) => ipcRenderer.send("spectrum:frame", frame),
+  listSpectrumFrames: (trackKey) => ipcRenderer.invoke("spectrum:list-frames", trackKey),
   toggleLyrics: () => ipcRenderer.invoke("lyrics:toggle"),
   hideLyrics: () => ipcRenderer.invoke("lyrics:hide"),
   listGalleryItems: () => ipcRenderer.invoke("gallery:list"),
@@ -24,6 +28,11 @@ contextBridge.exposeInMainWorld("roonMonitor", {
     const listener = (_event, frame) => callback(frame);
     ipcRenderer.on("spectrum:frame", listener);
     return () => ipcRenderer.removeListener("spectrum:frame", listener);
+  },
+  onSpectrumSnapshot: (callback) => {
+    const listener = (_event, snapshot) => callback(snapshot);
+    ipcRenderer.on("spectrum:snapshot", listener);
+    return () => ipcRenderer.removeListener("spectrum:snapshot", listener);
   },
   onLyricsVisibility: (callback) => {
     const listener = (_event, visible) => callback(visible);

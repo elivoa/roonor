@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Roon Spectrum</title>
+    <link rel="stylesheet" href="./spectrum.css" />
+  </head>
+  <body>
+    <main class="spectrum-view">
+      <header class="titlebar">
+        <div class="now-playing">
+          <p class="caption">LIVE SPECTRUM</p>
+          <p class="title" id="large-title">SPECTROGRAM</p>
+          <p class="meta" id="large-meta"></p>
+        </div>
+        <p class="mode" id="large-mode">WAITING PCM</p>
+      </header>
+      <canvas id="large-spectrum" aria-label="实时频谱图"></canvas>
+    </main>
+    <script src="./spectrum.js"></script>
+  </body>
+</html>

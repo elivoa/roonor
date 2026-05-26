@@ -30,8 +30,41 @@ let lastCapturedAt = 0;
 let playbackClock = { position: 0, capturedAt: 0 };
 let spectrumInputLabel = "";
 let retryCaptureAfter = 0;
+let hasLiveSpectrumFrames = false;
+let spectrumLoadRequest = 0;
 let pointerGesture = null;
 const dragThreshold = 5;
+
+function spectrumMode() {
+  if (hasLiveSpectrumFrames) return "LIVE PCM";
+  if (spectrumFrames.length) return "SAVED PCM";
+  return spectrumStatus;
+}
+
+function mergeSpectrumFrames(savedFrames, liveFrames) {
+  const framesByBucket = new Map();
+  for (const frame of [...savedFrames, ...liveFrames]) {
+    if (!frame || !Number.isFinite(frame.position) || !Array.isArray(frame.bins)) continue;
+    framesByBucket.set(Math.floor(frame.position * 10), frame);
+  }
+  return Array.from(framesByBucket.values()).sort((left, right) => left.position - right.position);
+}
+
+async function loadSavedSpectrumFrames(trackKey) {
+  const request = ++spectrumLoadRequest;
+  if (!trackKey) return;
+  try {
+    const savedFrames = await window.roonMonitor.listSpectrumFrames(trackKey);
+    if (request !== spectrumLoadRequest || trackKey !== spectrumTrackKey) return;
+    spectrumFrames = mergeSpectrumFrames(savedFrames, spectrumFrames);
+    elements.spectrumMode.textContent = spectrumMode();
+    drawSpectrum();
+  } catch (error) {
+    if (request === spectrumLoadRequest && trackKey === spectrumTrackKey) {
+      console.warn("Unable to restore saved spectrum:", error.message);
+    }
+  }
+}
 
 function render(state) {
   const playback = state.playback || {};
@@ -55,10 +88,13 @@ function render(state) {
   elements.playpause.disabled = !controls.playpause;
   elements.next.disabled = !controls.next;
   elements.playpause.textContent = playback.state === "playing" ? "Ⅱ" : "▶";
-  const nextSpectrumTrackKey = [playback.title, playback.artist, playback.album].join("|");
+  const nextSpectrumTrackKey =
+    playback.spectrumKey || [playback.title, playback.artist, playback.album].join("|");
   if (spectrumTrackKey !== nextSpectrumTrackKey) {
     spectrumTrackKey = nextSpectrumTrackKey;
     spectrumFrames = [];
+    hasLiveSpectrumFrames = false;
+    loadSavedSpectrumFrames(nextSpectrumTrackKey);
   }
   if (playback.state === "playing") {
     playbackClock = {
@@ -70,7 +106,7 @@ function render(state) {
     }
   }
   elements.spectrumTrack.textContent = playback.title || "SPECTROGRAM";
-  elements.spectrumMode.textContent = spectrumFrames.length ? "LIVE PCM" : spectrumStatus;
+  elements.spectrumMode.textContent = spectrumMode();
   document.body.dataset.state = playback.state || "idle";
   drawSpectrum();
 }
@@ -106,7 +142,7 @@ function spectrumPlot(canvasWidth, canvasHeight) {
   return {
     left: 43,
     top: 4,
-    right: canvasWidth - 38,
+    right: canvasWidth - 69,
     bottom: canvasHeight - 24
   };
 }
@@ -221,11 +257,13 @@ function drawSpectrumFrame(frame) {
   drawAxes(ctx, rect.width, rect.height, maxKhz, duration);
 }
 
-function appendSpectrumFrame(frame) {
+function appendSpectrumFrame(frame, publish = false) {
   if (!frame || frame.trackKey !== spectrumTrackKey || !Array.isArray(frame.bins)) return;
   spectrumFrames.push(frame);
-  elements.spectrumMode.textContent = "LIVE PCM";
+  if (publish) hasLiveSpectrumFrames = true;
+  elements.spectrumMode.textContent = spectrumMode();
   drawSpectrumFrame(frame);
+  if (publish) window.roonMonitor.publishSpectrumFrame(frame);
 }
 
 function stopStream(stream) {
@@ -358,7 +396,7 @@ function captureSpectrum(now) {
     bins: Array.from(bins, (db) =>
       Number.isFinite(db) ? Math.max(-100, Math.min(-20, db)) : -100
     )
-  });
+  }, true);
 }
 
 for (const [action, element] of [
@@ -381,7 +419,14 @@ document.addEventListener("pointerdown", (event) => {
     startY: event.screenY,
     lastX: event.screenX,
     lastY: event.screenY,
-    dragging: false
+    dragging: false,
+    action: event.target.closest("#pet-cover")
+      ? "gallery"
+      : event.target.closest("#panel")
+        ? "info"
+      : event.target.closest(".spectrum-panel")
+        ? "spectrum"
+        : ""
   };
   event.target.setPointerCapture?.(event.pointerId);
 });
@@ -409,9 +454,22 @@ document.addEventListener("pointermove", (event) => {
 document.addEventListener("pointerup", (event) => {
   if (!pointerGesture || pointerGesture.pointerId !== event.pointerId) return;
   const shouldToggle = !pointerGesture.dragging;
+  const released = pointerGesture;
   pointerGesture = null;
   if (shouldToggle) {
-    window.roonMonitor.toggleGallery();
+    if (released.action === "gallery") {
+      window.roonMonitor.toggleGallery();
+    }
+    if (released.action === "info") {
+      window.roonMonitor.toggleInfo();
+    }
+    if (released.action === "spectrum") {
+      window.roonMonitor.toggleSpectrum({
+        trackKey: spectrumTrackKey,
+        status: spectrumMode(),
+        frames: spectrumFrames
+      });
+    }
   }
 });
 

@@ -16,6 +16,7 @@ class Store {
     try {
       const { DatabaseSync } = require("node:sqlite");
       this.db = new DatabaseSync(this.dbPath);
+      this.db.exec("PRAGMA busy_timeout = 3000;");
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS playback_snapshots (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,10 +61,22 @@ class Store {
           plain_lyrics TEXT,
           fetched_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS spectrum_frames (
+          track_key TEXT NOT NULL,
+          bucket INTEGER NOT NULL,
+          position REAL NOT NULL,
+          frame_duration REAL NOT NULL,
+          sample_rate INTEGER NOT NULL,
+          bins BLOB NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (track_key, bucket)
+        );
       `);
       this.ensureColumn("media_items", "album_key", "TEXT NOT NULL DEFAULT ''");
     } catch (error) {
       console.warn("SQLite is unavailable in this runtime:", error.message);
+      this.db?.close();
       this.db = null;
     }
   }
@@ -107,14 +120,15 @@ class Store {
     if (!this.db || !snapshot?.imageKey || !snapshot.albumKey || !image) return null;
 
     const extension = contentType === "image/png" ? "png" : "jpg";
-    const fileName = `${crypto.createHash("sha256").update(snapshot.imageKey).digest("hex")}.${extension}`;
+    const sourceImageKey = snapshot.coverImageKey || snapshot.imageKey;
+    const fileName = `${crypto.createHash("sha256").update(sourceImageKey).digest("hex")}.${extension}`;
     const coverDirectory = path.join(this.userDataPath, "media", "covers");
     const filePath = path.join(coverDirectory, fileName);
     fs.mkdirSync(coverDirectory, { recursive: true });
     fs.writeFileSync(filePath, image);
 
     this.upsertMediaItem({
-      sourceKey: `roon-cover:${snapshot.albumKey}:${snapshot.imageKey}`,
+      sourceKey: `roon-cover:${snapshot.albumKey}:${sourceImageKey}`,
       albumKey: snapshot.albumKey,
       filePath,
       mediaType: "image",
@@ -124,6 +138,25 @@ class Store {
     });
 
     return filePath;
+  }
+
+  getCachedCover(albumKey) {
+    if (!this.db || !albumKey) return null;
+    const row = this.db
+      .prepare(`
+        SELECT file_path
+        FROM media_items
+        WHERE album_key = ? AND media_type = 'image' AND source_key LIKE 'roon-cover:%'
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `)
+      .get(albumKey);
+    if (!row || !fs.existsSync(row.file_path)) return null;
+
+    return {
+      contentType: path.extname(row.file_path).toLowerCase() === ".png" ? "image/png" : "image/jpeg",
+      image: fs.readFileSync(row.file_path)
+    };
   }
 
   addMediaFiles(filePaths, albumKey, context = {}) {
@@ -268,6 +301,58 @@ class Store {
         plainLyrics || "",
         fetchedAt
       );
+  }
+
+  saveSpectrumFrame(trackKey, frame) {
+    if (!this.db || !trackKey || !frame || !Array.isArray(frame.bins)) return;
+    const position = Number(frame.position);
+    if (!Number.isFinite(position)) return;
+
+    const bucket = Math.max(0, Math.floor(position * 10));
+    const bins = Buffer.from(Uint8Array.from(frame.bins, (value) => {
+      const db = Number.isFinite(value) ? Math.max(-100, Math.min(-20, value)) : -100;
+      return Math.round(((db + 100) / 80) * 255);
+    }));
+    this.db
+      .prepare(`
+        INSERT INTO spectrum_frames (
+          track_key, bucket, position, frame_duration, sample_rate, bins, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(track_key, bucket) DO UPDATE SET
+          position = excluded.position,
+          frame_duration = excluded.frame_duration,
+          sample_rate = excluded.sample_rate,
+          bins = excluded.bins,
+          updated_at = excluded.updated_at
+      `)
+      .run(
+        trackKey,
+        bucket,
+        position,
+        Number.isFinite(frame.duration) ? frame.duration : 0.1,
+        Number.isFinite(frame.sampleRate) ? Math.round(frame.sampleRate) : 48000,
+        bins,
+        new Date().toISOString()
+      );
+  }
+
+  listSpectrumFrames(trackKey) {
+    if (!this.db || !trackKey) return [];
+    return this.db
+      .prepare(`
+        SELECT position, frame_duration, sample_rate, bins
+        FROM spectrum_frames
+        WHERE track_key = ?
+        ORDER BY bucket ASC
+      `)
+      .all(trackKey)
+      .map((row) => ({
+        trackKey,
+        position: row.position,
+        duration: row.frame_duration,
+        sampleRate: row.sample_rate,
+        bins: Array.from(row.bins, (value) => -100 + (value / 255) * 80)
+      }));
   }
 
   setSetting(key, value) {

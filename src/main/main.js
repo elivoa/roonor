@@ -27,12 +27,46 @@ let saveGalleryBoundsTimer;
 let saveLyricsBoundsTimer;
 let activeLyricsKey = "";
 let activeLyrics = { trackKey: "", status: "idle", source: "", lines: [], plainLines: [] };
+let detailWindowMode = "";
+let latestSpectrumSnapshot = { trackKey: "", status: "WAITING PCM", frames: [] };
+
+function spectrumTrackKeyFor(playback = {}) {
+  if (!playback.title || playback.state === "idle") return "";
+  return [
+    playback.title || "",
+    playback.artist || "",
+    playback.album || "",
+    Math.round(playback.length || 0)
+  ].join("|");
+}
 
 function currentAlbumKey() {
   return roonClient?.state?.playback?.albumKey || "";
 }
 
-function replacePreviousInstance(userDataPath) {
+function waitForProcessExit(pid, timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const check = () => {
+      try {
+        process.kill(pid, 0);
+      } catch (error) {
+        if (error.code === "ESRCH") {
+          resolve();
+          return;
+        }
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        resolve();
+        return;
+      }
+      setTimeout(check, 50);
+    };
+    check();
+  });
+}
+
+async function replacePreviousInstance(userDataPath) {
   fs.mkdirSync(userDataPath, { recursive: true });
   instanceFilePath = path.join(userDataPath, "roon-monitor.pid");
 
@@ -40,6 +74,7 @@ function replacePreviousInstance(userDataPath) {
     const previousPid = Number(fs.readFileSync(instanceFilePath, "utf8").trim());
     if (Number.isInteger(previousPid) && previousPid > 0 && previousPid !== process.pid) {
       process.kill(previousPid, "SIGTERM");
+      await waitForProcessExit(previousPid);
     }
   } catch (error) {
     if (error.code !== "ENOENT" && error.code !== "ESRCH") {
@@ -112,6 +147,13 @@ function sendState(state) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("roon:state", output);
   }
+  if (
+    galleryWindow &&
+    !galleryWindow.isDestroyed() &&
+    (detailWindowMode === "info" || detailWindowMode === "spectrum")
+  ) {
+    galleryWindow.webContents.send("roon:state", output);
+  }
   if (lyricsWindow && !lyricsWindow.isDestroyed()) {
     lyricsWindow.webContents.send("roon:state", output);
   }
@@ -128,6 +170,7 @@ function stateWithLyrics(state) {
     ...state,
     playback: {
       ...playback,
+      spectrumKey: spectrumTrackKeyFor(playback),
       lyricData: lyrics
     }
   };
@@ -163,8 +206,19 @@ function saveMainBounds() {
 }
 
 function sendGalleryItems() {
-  if (!galleryWindow || galleryWindow.isDestroyed()) return;
+  if (!galleryWindow || galleryWindow.isDestroyed() || detailWindowMode !== "gallery") return;
   galleryWindow.webContents.send("gallery:items", store.listMediaItems(currentAlbumKey()));
+}
+
+function sendSpectrumContent() {
+  if (!galleryWindow || galleryWindow.isDestroyed() || detailWindowMode !== "spectrum") return;
+  galleryWindow.webContents.send("roon:state", stateWithLyrics(roonClient.state));
+  galleryWindow.webContents.send("spectrum:snapshot", latestSpectrumSnapshot);
+}
+
+function sendInfoContent() {
+  if (!galleryWindow || galleryWindow.isDestroyed() || detailWindowMode !== "info") return;
+  galleryWindow.webContents.send("roon:state", stateWithLyrics(roonClient.state));
 }
 
 function saveGalleryBounds() {
@@ -177,11 +231,30 @@ function saveGalleryBounds() {
   }, 150);
 }
 
-function createGalleryWindow() {
+function loadDetailWindow(mode) {
+  const title = mode === "spectrum" ? "Roon Spectrum" : mode === "info" ? "Roon Playing" : "Roon Arts";
+  const fileName = mode === "spectrum" ? "spectrum.html" : mode === "info" ? "info.html" : "gallery.html";
+  const sendContent =
+    mode === "spectrum" ? sendSpectrumContent : mode === "info" ? sendInfoContent : sendGalleryItems;
+  detailWindowMode = mode;
+  galleryWindow.setTitle(title);
+  galleryWindow.webContents.once("did-finish-load", sendContent);
+  galleryWindow.loadFile(path.join(__dirname, `../renderer/${fileName}`));
+}
+
+function createGalleryWindow(mode) {
   if (galleryWindow && !galleryWindow.isDestroyed()) {
     galleryWindow.show();
     galleryWindow.focus();
-    sendGalleryItems();
+    if (mode !== detailWindowMode) {
+      loadDetailWindow(mode);
+    } else if (mode === "spectrum") {
+      sendSpectrumContent();
+    } else if (mode === "info") {
+      sendInfoContent();
+    } else {
+      sendGalleryItems();
+    }
     return;
   }
 
@@ -191,7 +264,7 @@ function createGalleryWindow() {
     ...bounds,
     minWidth: 640,
     minHeight: 460,
-    title: "Roon Arts",
+    title: mode === "spectrum" ? "Roon Spectrum" : mode === "info" ? "Roon Playing" : "Roon Arts",
     backgroundColor: "#10151b",
     vibrancy: "under-window",
     visualEffectState: "active",
@@ -212,18 +285,26 @@ function createGalleryWindow() {
   galleryWindow.on("closed", () => {
     clearTimeout(saveGalleryBoundsTimer);
     galleryWindow = null;
+    detailWindowMode = "";
   });
-  galleryWindow.webContents.once("did-finish-load", sendGalleryItems);
-  galleryWindow.loadFile(path.join(__dirname, "../renderer/gallery.html"));
+  loadDetailWindow(mode);
 }
 
-function toggleGalleryWindow() {
+function toggleDetailWindow(mode, spectrumSnapshot) {
+  if (mode === "spectrum" && spectrumSnapshot) {
+    latestSpectrumSnapshot = spectrumSnapshot;
+  }
+
   if (galleryWindow && !galleryWindow.isDestroyed()) {
-    galleryWindow.close();
+    if (detailWindowMode === mode) {
+      galleryWindow.close();
+    } else {
+      createGalleryWindow(mode);
+    }
     return;
   }
 
-  createGalleryWindow();
+  createGalleryWindow(mode);
 }
 
 function defaultLyricsBounds() {
@@ -329,7 +410,7 @@ async function requestSpectrumInputAccess() {
   return { granted: status === "granted", status };
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   session.defaultSession.setPermissionCheckHandler((webContents, permission, _origin, details) => {
     return (
@@ -346,7 +427,7 @@ app.whenReady().then(() => {
     );
   });
   const userDataPath = app.getPath("userData");
-  replacePreviousInstance(userDataPath);
+  await replacePreviousInstance(userDataPath);
 
   store = new Store(userDataPath);
   store.init();
@@ -360,6 +441,7 @@ app.whenReady().then(() => {
   ipcMain.handle("roon:get-state", () => stateWithLyrics(roonClient.state));
   ipcMain.handle("roon:control", (_event, action) => roonClient.control(action));
   ipcMain.handle("spectrum:request-input-access", () => requestSpectrumInputAccess());
+  ipcMain.handle("spectrum:list-frames", (_event, trackKey) => store.listSpectrumFrames(trackKey));
   ipcMain.handle("window:close", () => mainWindow?.close());
   ipcMain.handle("window:move-main-by", (_event, deltaX, deltaY) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -373,7 +455,19 @@ app.whenReady().then(() => {
     const [x, y] = galleryWindow.getPosition();
     galleryWindow.setPosition(x + Math.round(deltaX), y + Math.round(deltaY), false);
   });
-  ipcMain.handle("gallery:toggle", () => toggleGalleryWindow());
+  ipcMain.handle("gallery:toggle", () => toggleDetailWindow("gallery"));
+  ipcMain.handle("info:toggle", () => toggleDetailWindow("info"));
+  ipcMain.handle("spectrum:toggle", (_event, snapshot) => toggleDetailWindow("spectrum", snapshot));
+  ipcMain.on("spectrum:frame", (event, frame) => {
+    if (event.sender !== mainWindow?.webContents) return;
+    const trackKey = spectrumTrackKeyFor(roonClient.state.playback);
+    if (trackKey && frame?.trackKey === trackKey) {
+      store.saveSpectrumFrame(trackKey, frame);
+    }
+    if (galleryWindow && !galleryWindow.isDestroyed() && detailWindowMode === "spectrum") {
+      galleryWindow.webContents.send("spectrum:frame", frame);
+    }
+  });
   ipcMain.handle("lyrics:toggle", () => toggleLyricsWindow());
   ipcMain.handle("lyrics:hide", () => {
     if (lyricsWindow && !lyricsWindow.isDestroyed()) {
