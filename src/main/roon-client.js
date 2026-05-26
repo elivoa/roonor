@@ -2,6 +2,7 @@ const { EventEmitter } = require("events");
 
 const DEFAULT_SERVER_HOST = "192.168.11.100";
 const DISCOVERY_RETRY_DELAY_MS = 3000;
+const COVER_RETRY_DELAY_MS = 5000;
 const ROON_CORE_SERVICE_ID = "00720724-5143-4a9b-abac-0e50cba674bb";
 
 function albumKeyFor({ album, artist, imageKey }) {
@@ -28,6 +29,8 @@ class RoonClient extends EventEmitter {
     this.lastImageContentType = "";
     this.lastImageBuffer = null;
     this.lastSavedCoverAlbumKey = "";
+    this.pendingImageKeys = new Set();
+    this.imageRetryUntil = new Map();
     this.hasDiscoveryConnectionError = false;
     this.discoveryRetryTimer = null;
     this.state = this.createState("idle", "准备连接 Roon");
@@ -280,11 +283,22 @@ class RoonClient extends EventEmitter {
       return;
     }
 
+    if (
+      this.pendingImageKeys.has(snapshot.imageKey) ||
+      (this.imageRetryUntil.get(snapshot.imageKey) || 0) > Date.now()
+    ) {
+      done();
+      return;
+    }
+
+    this.pendingImageKeys.add(snapshot.imageKey);
     this.imageService.get_image(
       snapshot.imageKey,
       { scale: "fill", width: 960, height: 960, format: "image/jpeg" },
       (error, contentType, image) => {
+        this.pendingImageKeys.delete(snapshot.imageKey);
         if (!error && image) {
+          this.imageRetryUntil.delete(snapshot.imageKey);
           this.lastImageKey = snapshot.imageKey;
           this.lastImageDataUrl = `data:${contentType};base64,${image.toString("base64")}`;
           this.lastImageContentType = contentType;
@@ -293,6 +307,8 @@ class RoonClient extends EventEmitter {
           this.store?.saveCover(snapshot, contentType, image);
           this.lastSavedCoverAlbumKey = snapshot.albumKey;
           this.emit("library-changed");
+        } else {
+          this.imageRetryUntil.set(snapshot.imageKey, Date.now() + COVER_RETRY_DELAY_MS);
         }
         done();
       }

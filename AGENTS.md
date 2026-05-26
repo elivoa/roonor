@@ -25,6 +25,7 @@
 - Roon Transport API 的 `now_playing` 也不暴露源音频文件路径；界面不得伪造具体路径，真实文件位置需要后续接入本地曲库映射或其他路径来源。
 
 - 大尺寸媒体图库不能只依赖渲染层中的封面 data URL；收到 Roon `image_key` 对应图像后，应将较高分辨率文件缓存到用户数据目录，并用 SQLite 保存图库元数据。
+- Roon 的播放进度更新会频繁触发状态刷新；封面 `get_image` 必须按 `image_key` 对进行中的请求去重，并对失败请求短暂退避，避免在播放期间反复向 Core 请求同一张图。
 - `Roon Arts` 只展示当前专辑的资源，缓存后的封面与导入的本地图片/PDF 必须关联当前 `album_key` 后再查询展示；不要回退为历史图库。
 - 当前 API 没有显式 album id，专辑归组优先使用专辑名与 `image_key`，避免用 track artist 把合辑拆散。
 
