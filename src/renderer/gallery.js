@@ -14,6 +14,8 @@ let activeAlbumKey = "";
 let scrollingTimer = 0;
 let pointerGesture = null;
 let pendingOpen = null;
+let moveAnimationFrame = 0;
+let pendingMove = { x: 0, y: 0 };
 const dragThreshold = 5;
 const doubleClickDelay = 320;
 
@@ -176,7 +178,18 @@ document.addEventListener("pointermove", (event) => {
   pointerGesture.lastX = event.screenX;
   pointerGesture.lastY = event.screenY;
   if (deltaX || deltaY) {
-    window.roonMonitor.moveGalleryWindowBy(deltaX, deltaY);
+    pendingMove.x += deltaX;
+    pendingMove.y += deltaY;
+    if (!moveAnimationFrame) {
+      moveAnimationFrame = requestAnimationFrame(() => {
+        moveAnimationFrame = 0;
+        const movement = pendingMove;
+        pendingMove = { x: 0, y: 0 };
+        if (movement.x || movement.y) {
+          window.roonMonitor.moveGalleryWindowBy(movement.x, movement.y);
+        }
+      });
+    }
   }
 });
 

@@ -4,6 +4,7 @@ const DEFAULT_SERVER_HOST = "192.168.11.100";
 const DISCOVERY_RETRY_DELAY_MS = 3000;
 const COVER_RETRY_DELAY_MS = 5000;
 const COVER_REQUEST_TIMEOUT_MS = 5000;
+const CACHED_COVER_RETRY_DELAY_MS = 5 * 60 * 1000;
 const FALLBACK_COVER_RETRY_DELAY_MS = 60 * 1000;
 const ROON_CORE_SERVICE_ID = "00720724-5143-4a9b-abac-0e50cba674bb";
 
@@ -355,6 +356,7 @@ class RoonClient extends EventEmitter {
         }
         const imageDataUrl = `data:${cover.contentType};base64,${cover.image.toString("base64")}`;
         this.cachedCoverDataUrls.set(snapshot.albumKey, imageDataUrl);
+        this.imageRetryUntil.set(snapshot.imageKey, Date.now() + CACHED_COVER_RETRY_DELAY_MS);
         this.store?.saveCover(snapshot, cover.contentType, cover.image);
         this.publishCoverIfCurrent(snapshot, imageDataUrl);
         this.emit("library-changed");
@@ -423,7 +425,10 @@ class RoonClient extends EventEmitter {
           this.publishCoverIfCurrent(snapshot, this.lastImageDataUrl);
           this.emit("library-changed");
         } else {
-          this.imageRetryUntil.set(snapshot.imageKey, Date.now() + COVER_RETRY_DELAY_MS);
+          const retryDelay = this.cachedCoverDataUrls.has(snapshot.albumKey)
+            ? CACHED_COVER_RETRY_DELAY_MS
+            : COVER_RETRY_DELAY_MS;
+          this.imageRetryUntil.set(snapshot.imageKey, Date.now() + retryDelay);
           this.requestFallbackCover(snapshot);
         }
       }

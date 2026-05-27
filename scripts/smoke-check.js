@@ -50,6 +50,7 @@ for (const file of [
 }
 
 const { parseSyncedLyrics } = require(path.join(root, "src/main/lyrics-service.js"));
+const RoonClient = require(path.join(root, "src/main/roon-client.js"));
 assert.deepStrictEqual(parseSyncedLyrics("[00:02.50]Second\n[00:01.05]First"), [
   { time: 1.05, text: "First" },
   { time: 2.5, text: "Second" }
@@ -82,5 +83,23 @@ assert.strictEqual(storedFrame.bins.length, 3);
 assert.ok(Math.abs(storedFrame.bins[1] - -70) < 0.4);
 reopenedSpectrumStore.db?.close();
 fs.rmSync(spectrumStorePath, { recursive: true, force: true });
+
+const coverCallbacks = new Map();
+const client = new RoonClient({ store: null });
+client.imageService = {
+  get_image(imageKey, _options, callback) {
+    coverCallbacks.set(imageKey, callback);
+  }
+};
+const firstCover = { albumKey: "first|cover-a", imageKey: "cover-a" };
+const secondCover = { albumKey: "second|cover-b", imageKey: "cover-b" };
+client.state = { playback: firstCover };
+client.fetchCoverIfNeeded(firstCover);
+client.state = { playback: secondCover };
+client.fetchCoverIfNeeded(secondCover);
+coverCallbacks.get("cover-a")(false, "image/jpeg", Buffer.from("old"));
+assert.strictEqual(client.state.playback.imageDataUrl, undefined);
+coverCallbacks.get("cover-b")(false, "image/jpeg", Buffer.from("new"));
+assert.ok(client.state.playback.imageDataUrl.includes(Buffer.from("new").toString("base64")));
 
 console.log("Smoke check passed.");

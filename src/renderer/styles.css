@@ -125,6 +125,13 @@ button {
   cursor: pointer;
 }
 
+body.dragging .panel,
+body.dragging .spectrum-panel {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
 .spectrum-header {
   display: flex;
   justify-content: space-between;

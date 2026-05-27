@@ -10,6 +10,7 @@ let trackKey = "";
 let spectrumFrames = [];
 let spectrumStatus = "WAITING PCM";
 let spectrumLoadRequest = 0;
+let spectrumDuration = 0;
 
 function mergeSpectrumFrames(savedFrames, liveFrames) {
   const framesByBucket = new Map();
@@ -18,6 +19,16 @@ function mergeSpectrumFrames(savedFrames, liveFrames) {
     framesByBucket.set(Math.floor(frame.position * 10), frame);
   }
   return Array.from(framesByBucket.values()).sort((left, right) => left.position - right.position);
+}
+
+function appendOrReplaceFrame(frames, frame) {
+  const bucket = Math.floor(frame.position * 10);
+  const lastIndex = frames.length - 1;
+  if (lastIndex >= 0 && Math.floor(frames[lastIndex].position * 10) === bucket) {
+    frames[lastIndex] = frame;
+  } else {
+    frames.push(frame);
+  }
 }
 
 async function loadSavedSpectrumFrames(nextKey) {
@@ -151,7 +162,7 @@ function drawSpectrum() {
     elements.canvas.height = height;
   }
   const ctx = elements.canvas.getContext("2d");
-  const duration = Math.max(playback.length || (playback.position || 0) + 60, 1);
+  const duration = spectrumDuration;
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, rect.width, rect.height);
@@ -165,28 +176,34 @@ function drawSpectrumFrame(frame) {
   const rect = elements.canvas.getBoundingClientRect();
   const scale = window.devicePixelRatio || 1;
   const ctx = elements.canvas.getContext("2d");
-  const duration = Math.max(playback.length || (playback.position || 0) + 60, 1);
+  const duration = spectrumDuration;
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   const plot = spectrumPlot(rect.width, rect.height);
   drawFrames(ctx, plot, duration, 22, [frame]);
-  drawAxes(ctx, rect.width, rect.height, 22, duration);
 }
 
 function renderState(state) {
+  let shouldDraw = !playback;
   playback = state.playback || {};
   const nextKey = playback.spectrumKey || [playback.title, playback.artist, playback.album].join("|");
   if (trackKey && trackKey !== nextKey) {
     spectrumFrames = [];
     spectrumStatus = "WAITING PCM";
+    shouldDraw = true;
   }
   if (trackKey !== nextKey) {
     trackKey = nextKey;
     loadSavedSpectrumFrames(nextKey);
   }
+  const nextDuration = Math.max(playback.length || (playback.position || 0) + 60, 1);
+  if (spectrumDuration !== nextDuration) {
+    spectrumDuration = nextDuration;
+    shouldDraw = true;
+  }
   elements.title.textContent = playback.title || "SPECTROGRAM";
   elements.meta.textContent = [playback.artist, playback.album].filter(Boolean).join(" / ");
   elements.mode.textContent = spectrumStatus;
-  drawSpectrum();
+  if (shouldDraw) drawSpectrum();
 }
 
 function renderSnapshot(snapshot = {}) {
@@ -200,7 +217,7 @@ function renderSnapshot(snapshot = {}) {
 
 function appendFrame(frame) {
   if (!frame || frame.trackKey !== trackKey || !Array.isArray(frame.bins)) return;
-  spectrumFrames.push(frame);
+  appendOrReplaceFrame(spectrumFrames, frame);
   spectrumStatus = "LIVE PCM";
   elements.mode.textContent = spectrumStatus;
   drawSpectrumFrame(frame);

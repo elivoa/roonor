@@ -32,8 +32,14 @@ let spectrumInputLabel = "";
 let retryCaptureAfter = 0;
 let hasLiveSpectrumFrames = false;
 let spectrumLoadRequest = 0;
+let spectrumDuration = 0;
 let pointerGesture = null;
+let moveAnimationFrame = 0;
+let pendingMove = { x: 0, y: 0 };
+let displayedCoverAlbumKey = "";
+let displayedCoverDataUrl = "";
 const dragThreshold = 5;
+const spectrumIntervalMs = 100;
 
 function spectrumMode() {
   if (hasLiveSpectrumFrames) return "LIVE PCM";
@@ -48,6 +54,16 @@ function mergeSpectrumFrames(savedFrames, liveFrames) {
     framesByBucket.set(Math.floor(frame.position * 10), frame);
   }
   return Array.from(framesByBucket.values()).sort((left, right) => left.position - right.position);
+}
+
+function appendOrReplaceFrame(frames, frame) {
+  const bucket = Math.floor(frame.position * 10);
+  const lastIndex = frames.length - 1;
+  if (lastIndex >= 0 && Math.floor(frames[lastIndex].position * 10) === bucket) {
+    frames[lastIndex] = frame;
+  } else {
+    frames.push(frame);
+  }
 }
 
 async function loadSavedSpectrumFrames(trackKey) {
@@ -69,6 +85,7 @@ async function loadSavedSpectrumFrames(trackKey) {
 function render(state) {
   const playback = state.playback || {};
   const controls = state.controls || {};
+  let shouldDrawSpectrum = !lastPlayback;
   lastPlayback = playback;
 
   elements.zone.textContent = playback.zoneName || state.coreName || state.serverHost;
@@ -79,10 +96,15 @@ function render(state) {
   const fileLocation = playback.fileLocation || "Roon API 未提供音频文件路径";
   elements.fileLocation.textContent = `文件位置：${fileLocation}`;
   elements.fileLocation.title = fileLocation;
-  elements.petCover.style.backgroundImage = playback.imageDataUrl
-    ? `url("${playback.imageDataUrl}")`
-    : "";
-  elements.petCover.classList.toggle("has-image", Boolean(playback.imageDataUrl));
+  const nextAlbumKey = playback.albumKey || "";
+  if (!playback.imageUnchanged || nextAlbumKey !== displayedCoverAlbumKey) {
+    displayedCoverDataUrl = playback.imageDataUrl || "";
+    elements.petCover.style.backgroundImage = displayedCoverDataUrl
+      ? `url("${displayedCoverDataUrl}")`
+      : "";
+    elements.petCover.classList.toggle("has-image", Boolean(displayedCoverDataUrl));
+  }
+  displayedCoverAlbumKey = nextAlbumKey;
 
   elements.previous.disabled = !controls.previous;
   elements.playpause.disabled = !controls.playpause;
@@ -95,6 +117,12 @@ function render(state) {
     spectrumFrames = [];
     hasLiveSpectrumFrames = false;
     loadSavedSpectrumFrames(nextSpectrumTrackKey);
+    shouldDrawSpectrum = true;
+  }
+  const nextSpectrumDuration = Math.max(playback.length || (playback.position || 0) + 60, 1);
+  if (spectrumDuration !== nextSpectrumDuration) {
+    spectrumDuration = nextSpectrumDuration;
+    shouldDrawSpectrum = true;
   }
   if (playback.state === "playing") {
     playbackClock = {
@@ -108,7 +136,7 @@ function render(state) {
   elements.spectrumTrack.textContent = playback.title || "SPECTROGRAM";
   elements.spectrumMode.textContent = spectrumMode();
   document.body.dataset.state = playback.state || "idle";
-  drawSpectrum();
+  if (shouldDrawSpectrum) drawSpectrum();
 }
 
 function colorForDb(db) {
@@ -234,7 +262,7 @@ function drawSpectrum() {
   const drawWidth = rect.width;
   const drawHeight = rect.height;
   const maxKhz = 22;
-  const duration = Math.max(lastPlayback.length || (lastPlayback.position || 0) + 60, 1);
+  const duration = spectrumDuration;
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, drawWidth, drawHeight);
@@ -250,19 +278,18 @@ function drawSpectrumFrame(frame) {
   const scale = window.devicePixelRatio || 1;
   const ctx = canvas.getContext("2d");
   const maxKhz = 22;
-  const duration = Math.max(lastPlayback.length || (lastPlayback.position || 0) + 60, 1);
+  const duration = spectrumDuration;
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   const plot = spectrumPlot(rect.width, rect.height);
   drawFrames(ctx, plot, duration, maxKhz, [frame]);
-  drawAxes(ctx, rect.width, rect.height, maxKhz, duration);
 }
 
 function appendSpectrumFrame(frame, publish = false) {
   if (!frame || frame.trackKey !== spectrumTrackKey || !Array.isArray(frame.bins)) return;
-  spectrumFrames.push(frame);
+  appendOrReplaceFrame(spectrumFrames, frame);
   if (publish) hasLiveSpectrumFrames = true;
   elements.spectrumMode.textContent = spectrumMode();
-  drawSpectrumFrame(frame);
+  if (!pointerGesture?.dragging) drawSpectrumFrame(frame);
   if (publish) window.roonMonitor.publishSpectrumFrame(frame);
 }
 
@@ -373,7 +400,11 @@ async function ensureSpectrumCapture() {
 
 function captureSpectrum(now) {
   spectrumCaptureFrame = requestAnimationFrame(captureSpectrum);
-  if (!spectrumAnalyser || lastPlayback?.state !== "playing" || now - lastCapturedAt < 80) {
+  if (
+    !spectrumAnalyser ||
+    lastPlayback?.state !== "playing" ||
+    now - lastCapturedAt < spectrumIntervalMs
+  ) {
     return;
   }
 
@@ -388,14 +419,22 @@ function captureSpectrum(now) {
   }
   spectrumStatus = "LIVE PCM";
   const position = playbackClock.position + (now - playbackClock.capturedAt) / 1000;
+  const outputBinCount = 256;
+  const sourceBinsPerOutput = Math.ceil(bins.length / outputBinCount);
+  const reducedBins = [];
+  for (let start = 0; start < bins.length; start += sourceBinsPerOutput) {
+    let peakDb = -100;
+    for (let index = start; index < Math.min(start + sourceBinsPerOutput, bins.length); index += 1) {
+      peakDb = Math.max(peakDb, bins[index]);
+    }
+    reducedBins.push(Math.max(-100, Math.min(-20, peakDb)));
+  }
   appendSpectrumFrame({
     trackKey: spectrumTrackKey,
     position,
-    duration: 0.08,
+    duration: spectrumIntervalMs / 1000,
     sampleRate: spectrumAudioContext.sampleRate,
-    bins: Array.from(bins, (db) =>
-      Number.isFinite(db) ? Math.max(-100, Math.min(-20, db)) : -100
-    )
+    bins: reducedBins
   }, true);
 }
 
@@ -424,9 +463,9 @@ document.addEventListener("pointerdown", (event) => {
       ? "gallery"
       : event.target.closest("#panel")
         ? "info"
-      : event.target.closest(".spectrum-panel")
-        ? "spectrum"
-        : ""
+        : event.target.closest(".spectrum-panel")
+          ? "spectrum"
+          : ""
   };
   event.target.setPointerCapture?.(event.pointerId);
 });
@@ -439,6 +478,7 @@ document.addEventListener("pointermove", (event) => {
   );
   if (!pointerGesture.dragging && travel >= dragThreshold) {
     pointerGesture.dragging = true;
+    document.body.classList.add("dragging");
   }
   if (!pointerGesture.dragging) return;
 
@@ -447,7 +487,18 @@ document.addEventListener("pointermove", (event) => {
   pointerGesture.lastX = event.screenX;
   pointerGesture.lastY = event.screenY;
   if (deltaX || deltaY) {
-    window.roonMonitor.moveMainWindowBy(deltaX, deltaY);
+    pendingMove.x += deltaX;
+    pendingMove.y += deltaY;
+    if (!moveAnimationFrame) {
+      moveAnimationFrame = requestAnimationFrame(() => {
+        moveAnimationFrame = 0;
+        const movement = pendingMove;
+        pendingMove = { x: 0, y: 0 };
+        if (movement.x || movement.y) {
+          window.roonMonitor.moveMainWindowBy(movement.x, movement.y);
+        }
+      });
+    }
   }
 });
 
@@ -456,6 +507,8 @@ document.addEventListener("pointerup", (event) => {
   const shouldToggle = !pointerGesture.dragging;
   const released = pointerGesture;
   pointerGesture = null;
+  document.body.classList.remove("dragging");
+  if (!shouldToggle) drawSpectrum();
   if (shouldToggle) {
     if (released.action === "gallery") {
       window.roonMonitor.toggleGallery();
@@ -475,6 +528,8 @@ document.addEventListener("pointerup", (event) => {
 
 document.addEventListener("pointercancel", () => {
   pointerGesture = null;
+  document.body.classList.remove("dragging");
+  drawSpectrum();
 });
 
 window.roonMonitor.onState(render);

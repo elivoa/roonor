@@ -304,7 +304,36 @@ class Store {
   }
 
   saveSpectrumFrame(trackKey, frame) {
-    if (!this.db || !trackKey || !frame || !Array.isArray(frame.bins)) return;
+    this.saveSpectrumFrames(trackKey, [frame]);
+  }
+
+  saveSpectrumFrames(trackKey, frames) {
+    if (!this.db || !trackKey || !Array.isArray(frames) || !frames.length) return;
+    const writeFrame = this.db.prepare(`
+      INSERT INTO spectrum_frames (
+        track_key, bucket, position, frame_duration, sample_rate, bins, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(track_key, bucket) DO UPDATE SET
+        position = excluded.position,
+        frame_duration = excluded.frame_duration,
+        sample_rate = excluded.sample_rate,
+        bins = excluded.bins,
+        updated_at = excluded.updated_at
+    `);
+    this.db.exec("BEGIN");
+    try {
+      for (const frame of frames) {
+        this.writeSpectrumFrame(writeFrame, trackKey, frame);
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  writeSpectrumFrame(writeFrame, trackKey, frame) {
+    if (!frame || !Array.isArray(frame.bins)) return;
     const position = Number(frame.position);
     if (!Number.isFinite(position)) return;
 
@@ -313,27 +342,15 @@ class Store {
       const db = Number.isFinite(value) ? Math.max(-100, Math.min(-20, value)) : -100;
       return Math.round(((db + 100) / 80) * 255);
     }));
-    this.db
-      .prepare(`
-        INSERT INTO spectrum_frames (
-          track_key, bucket, position, frame_duration, sample_rate, bins, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(track_key, bucket) DO UPDATE SET
-          position = excluded.position,
-          frame_duration = excluded.frame_duration,
-          sample_rate = excluded.sample_rate,
-          bins = excluded.bins,
-          updated_at = excluded.updated_at
-      `)
-      .run(
-        trackKey,
-        bucket,
-        position,
-        Number.isFinite(frame.duration) ? frame.duration : 0.1,
-        Number.isFinite(frame.sampleRate) ? Math.round(frame.sampleRate) : 48000,
-        bins,
-        new Date().toISOString()
-      );
+    writeFrame.run(
+      trackKey,
+      bucket,
+      position,
+      Number.isFinite(frame.duration) ? frame.duration : 0.1,
+      Number.isFinite(frame.sampleRate) ? Math.round(frame.sampleRate) : 48000,
+      bins,
+      new Date().toISOString()
+    );
   }
 
   listSpectrumFrames(trackKey) {

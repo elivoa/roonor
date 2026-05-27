@@ -6,9 +6,9 @@ contextBridge.exposeInMainWorld("roonMonitor", {
   requestSpectrumInputAccess: () => ipcRenderer.invoke("spectrum:request-input-access"),
   close: () => ipcRenderer.invoke("window:close"),
   moveMainWindowBy: (deltaX, deltaY) =>
-    ipcRenderer.invoke("window:move-main-by", deltaX, deltaY),
+    ipcRenderer.send("window:move-main-by", deltaX, deltaY),
   moveGalleryWindowBy: (deltaX, deltaY) =>
-    ipcRenderer.invoke("window:move-gallery-by", deltaX, deltaY),
+    ipcRenderer.send("window:move-gallery-by", deltaX, deltaY),
   toggleGallery: () => ipcRenderer.invoke("gallery:toggle"),
   toggleInfo: () => ipcRenderer.invoke("info:toggle"),
   toggleSpectrum: (snapshot) => ipcRenderer.invoke("spectrum:toggle", snapshot),

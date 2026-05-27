@@ -29,6 +29,11 @@ let activeLyricsKey = "";
 let activeLyrics = { trackKey: "", status: "idle", source: "", lines: [], plainLines: [] };
 let detailWindowMode = "";
 let latestSpectrumSnapshot = { trackKey: "", status: "WAITING PCM", frames: [] };
+let pendingSpectrumFrames = new Map();
+let spectrumFlushTimer;
+let lastMainCoverAlbumKey;
+let lastMainCoverDataUrl;
+let lastGalleryAlbumKey = "";
 
 function spectrumTrackKeyFor(playback = {}) {
   if (!playback.title || playback.state === "idle") return "";
@@ -145,17 +150,42 @@ function createWindow() {
 function sendState(state) {
   const output = stateWithLyrics(state);
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send("roon:state", output);
+    const playback = output.playback || {};
+    const coverChanged =
+      playback.albumKey !== lastMainCoverAlbumKey ||
+      playback.imageDataUrl !== lastMainCoverDataUrl;
+    lastMainCoverAlbumKey = playback.albumKey;
+    lastMainCoverDataUrl = playback.imageDataUrl;
+    mainWindow.webContents.send(
+      "roon:state",
+      coverChanged
+        ? output
+        : {
+            ...output,
+            playback: {
+              ...playback,
+              imageDataUrl: undefined,
+              imageUnchanged: true
+            }
+          }
+    );
   }
+  const lightweightOutput = {
+    ...output,
+    playback: {
+      ...output.playback,
+      imageDataUrl: undefined
+    }
+  };
   if (
     galleryWindow &&
     !galleryWindow.isDestroyed() &&
     (detailWindowMode === "info" || detailWindowMode === "spectrum")
   ) {
-    galleryWindow.webContents.send("roon:state", output);
+    galleryWindow.webContents.send("roon:state", lightweightOutput);
   }
   if (lyricsWindow && !lyricsWindow.isDestroyed()) {
-    lyricsWindow.webContents.send("roon:state", output);
+    lyricsWindow.webContents.send("roon:state", lightweightOutput);
   }
 }
 
@@ -205,20 +235,31 @@ function saveMainBounds() {
   }, 150);
 }
 
-function sendGalleryItems() {
+function sendGalleryItems(force = false) {
   if (!galleryWindow || galleryWindow.isDestroyed() || detailWindowMode !== "gallery") return;
-  galleryWindow.webContents.send("gallery:items", store.listMediaItems(currentAlbumKey()));
+  const albumKey = currentAlbumKey();
+  if (!force && lastGalleryAlbumKey === albumKey) return;
+  lastGalleryAlbumKey = albumKey;
+  galleryWindow.webContents.send("gallery:items", store.listMediaItems(albumKey));
 }
 
 function sendSpectrumContent() {
   if (!galleryWindow || galleryWindow.isDestroyed() || detailWindowMode !== "spectrum") return;
-  galleryWindow.webContents.send("roon:state", stateWithLyrics(roonClient.state));
+  const state = stateWithLyrics(roonClient.state);
+  galleryWindow.webContents.send("roon:state", {
+    ...state,
+    playback: { ...state.playback, imageDataUrl: undefined }
+  });
   galleryWindow.webContents.send("spectrum:snapshot", latestSpectrumSnapshot);
 }
 
 function sendInfoContent() {
   if (!galleryWindow || galleryWindow.isDestroyed() || detailWindowMode !== "info") return;
-  galleryWindow.webContents.send("roon:state", stateWithLyrics(roonClient.state));
+  const state = stateWithLyrics(roonClient.state);
+  galleryWindow.webContents.send("roon:state", {
+    ...state,
+    playback: { ...state.playback, imageDataUrl: undefined }
+  });
 }
 
 function saveGalleryBounds() {
@@ -235,7 +276,11 @@ function loadDetailWindow(mode) {
   const title = mode === "spectrum" ? "Roon Spectrum" : mode === "info" ? "Roon Playing" : "Roon Arts";
   const fileName = mode === "spectrum" ? "spectrum.html" : mode === "info" ? "info.html" : "gallery.html";
   const sendContent =
-    mode === "spectrum" ? sendSpectrumContent : mode === "info" ? sendInfoContent : sendGalleryItems;
+    mode === "spectrum"
+      ? sendSpectrumContent
+      : mode === "info"
+        ? sendInfoContent
+        : () => sendGalleryItems(true);
   detailWindowMode = mode;
   galleryWindow.setTitle(title);
   galleryWindow.webContents.once("did-finish-load", sendContent);
@@ -253,7 +298,7 @@ function createGalleryWindow(mode) {
     } else if (mode === "info") {
       sendInfoContent();
     } else {
-      sendGalleryItems();
+      sendGalleryItems(true);
     }
     return;
   }
@@ -327,6 +372,29 @@ function saveLyricsBounds() {
       store.setSetting("lyrics.windowBounds", lyricsWindow.getBounds());
     }
   }, 150);
+}
+
+function flushSpectrumFrames() {
+  clearTimeout(spectrumFlushTimer);
+  spectrumFlushTimer = null;
+  if (!store || !pendingSpectrumFrames.size) return;
+  const groups = new Map();
+  for (const { trackKey, frame } of pendingSpectrumFrames.values()) {
+    if (!groups.has(trackKey)) groups.set(trackKey, []);
+    groups.get(trackKey).push(frame);
+  }
+  pendingSpectrumFrames = new Map();
+  for (const [trackKey, frames] of groups) {
+    store.saveSpectrumFrames(trackKey, frames);
+  }
+}
+
+function queueSpectrumFrame(trackKey, frame) {
+  const bucket = Math.max(0, Math.floor(Number(frame.position) * 10));
+  pendingSpectrumFrames.set(`${trackKey}|${bucket}`, { trackKey, frame });
+  if (!spectrumFlushTimer) {
+    spectrumFlushTimer = setTimeout(flushSpectrumFrames, 400);
+  }
 }
 
 function sendLyricsVisibility() {
@@ -443,13 +511,13 @@ app.whenReady().then(async () => {
   ipcMain.handle("spectrum:request-input-access", () => requestSpectrumInputAccess());
   ipcMain.handle("spectrum:list-frames", (_event, trackKey) => store.listSpectrumFrames(trackKey));
   ipcMain.handle("window:close", () => mainWindow?.close());
-  ipcMain.handle("window:move-main-by", (_event, deltaX, deltaY) => {
+  ipcMain.on("window:move-main-by", (_event, deltaX, deltaY) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY)) return;
     const [x, y] = mainWindow.getPosition();
     mainWindow.setPosition(x + Math.round(deltaX), y + Math.round(deltaY), false);
   });
-  ipcMain.handle("window:move-gallery-by", (_event, deltaX, deltaY) => {
+  ipcMain.on("window:move-gallery-by", (_event, deltaX, deltaY) => {
     if (!galleryWindow || galleryWindow.isDestroyed()) return;
     if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY)) return;
     const [x, y] = galleryWindow.getPosition();
@@ -462,7 +530,7 @@ app.whenReady().then(async () => {
     if (event.sender !== mainWindow?.webContents) return;
     const trackKey = spectrumTrackKeyFor(roonClient.state.playback);
     if (trackKey && frame?.trackKey === trackKey) {
-      store.saveSpectrumFrame(trackKey, frame);
+      queueSpectrumFrame(trackKey, frame);
     }
     if (galleryWindow && !galleryWindow.isDestroyed() && detailWindowMode === "spectrum") {
       galleryWindow.webContents.send("spectrum:frame", frame);
@@ -487,7 +555,7 @@ app.whenReady().then(async () => {
     if (result.canceled) return store.listMediaItems(currentAlbumKey());
     const playback = roonClient.state.playback || {};
     const items = store.addMediaFiles(result.filePaths, currentAlbumKey(), playback);
-    sendGalleryItems();
+    sendGalleryItems(true);
     return items;
   });
   ipcMain.handle("gallery:open-item", (_event, filePath) => {
@@ -500,7 +568,7 @@ app.whenReady().then(async () => {
     sendState(state);
     sendGalleryItems();
   });
-  roonClient.on("library-changed", sendGalleryItems);
+  roonClient.on("library-changed", () => sendGalleryItems(true));
   createWindow();
   createLyricsWindow();
   roonClient.start();
@@ -516,6 +584,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", removeInstanceFile);
 app.on("before-quit", () => {
+  flushSpectrumFrames();
   app.isQuitting = true;
 });
 
